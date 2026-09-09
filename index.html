@@ -1,0 +1,1866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Extension manifest permission surface</title>
+<meta name="description" content="Paste a browser extension manifest and a list of URLs. Resolves every match pattern per manifest key and prints which key grants which URL, and via exactly which pattern.">
+<link rel="canonical" href="https://0xelitesystem.github.io/extension-manifest-permission-surface/">
+<meta property="og:title" content="Extension manifest permission surface">
+<meta property="og:description" content="Paste a browser extension manifest and a list of URLs. Resolves every match pattern per manifest key and prints which key grants which URL, and via exactly which pattern.">
+<meta property="og:url" content="https://0xelitesystem.github.io/extension-manifest-permission-surface/">
+<meta property="og:type" content="website">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Extension manifest permission surface",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Any (browser)",
+  "url": "https://0xelitesystem.github.io/extension-manifest-permission-surface/",
+  "description": "Resolves every match pattern in a browser extension manifest against candidate URLs, per manifest key, and prints which key grants which URL and via exactly which pattern.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "0xelitesystem", "url": "https://elitesystem.ai" }
+}
+</script>
+
+<!--
+  WCAG contrast, computed by arithmetic (sRGB relative luminance, WCAG 2.x formula)
+  for every text token against every background token, in both themes, whether or
+  not the page currently paints that pair.
+
+  LIGHT                bg #e8ebef   surface #f7f9fb   surface-2 #dde3ea
+    ink      #14171a      15.05          17.05            13.92
+    ink-soft #41474e       7.85           8.90             7.27
+    accent   #2d6b00       5.46           6.19             5.06
+    ok       #1c6b3a       5.46           6.19             5.06
+    warn     #8a4d00       5.59           6.33             5.17
+    err      #a82d14       5.76           6.52             5.33
+    worst text pair: 5.06 (accent on surface-2), AA body minimum is 4.50
+    non text: control #6f7883  3.74 / 4.24 / 3.46, minimum is 3.00
+    button fill: label bg #e8ebef on accent #2d6b00 = 5.46, hovered on
+      accent-hover #245600 = 7.30. Secondary button hovered: ink #14171a on
+      surface-2 #dde3ea = 13.92, its control #6f7883 boundary = 3.46
+    border #c3cad2 is 1.38 / 1.57 / 1.28 and is used ONLY for hairlines, never for text
+
+  DARK                 bg #0a0a0a   surface #16181a   surface-2 #202426
+    ink      #f2f4f6      17.96          16.15            14.20
+    ink-soft #b7bec6      10.55           9.49             8.34
+    accent   #d4ff3a      17.12          15.40            13.54
+    ok       #7fe3a4      12.66          11.38            10.01
+    warn     #ffc266      12.41          11.16             9.81
+    err      #ff9d87       9.83           8.84             7.77
+    worst text pair: 7.77 (err on surface-2), AA body minimum is 4.50
+    non text: control #7d858c  5.28 / 4.75 / 4.18, minimum is 3.00
+    button fill: label bg #0a0a0a on accent #d4ff3a = 17.12, hovered on
+      accent-hover #bce62e = 13.67. Secondary button hovered: ink #f2f4f6 on
+      surface-2 #202426 = 14.20, its control #7d858c boundary = 4.18
+    border #2c3134 is 1.50 / 1.35 / 1.19 and is used ONLY for hairlines, never for text
+
+  The hover state is included above because opacity hovering is what put this page
+  under AA once: opacity composites the whole button against the backdrop, and the
+  primary label's colour IS that backdrop, so the pair fell to 4.48. Hover changes
+  tokens now, and nothing on the page hovers by opacity.
+
+  Every state prints a word, a leading glyph and a distinct font weight, so no
+  result is carried by colour alone. The state colours are separated by HUE, not by
+  lightness, and the page does not claim otherwise. In greyscale, ok #1c6b3a
+  (L 0.1107) against ink-soft #41474e (L 0.0618) is 1.44 in light and 1.20 in dark.
+  A wider greyscale gap is not available here: to clear 4.5 on surface-2 #dde3ea
+  every light theme text token must sit at or below L 0.1306, and the widest
+  greyscale ratio any two tokens inside that band can reach against each other is
+  3.61, which would cost one of them its hue entirely. So the word, the glyph and
+  the weight carry the state, and colour stays decoration on top of them.
+-->
+
+<style>
+:root{
+  --bg:#e8ebef; --surface:#f7f9fb; --surface-2:#dde3ea;
+  --ink:#14171a; --ink-soft:#41474e;
+  --accent:#2d6b00; --accent-hover:#245600; --ok:#1c6b3a; --warn:#8a4d00; --err:#a82d14;
+  --border:#c3cad2; --control:#6f7883;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0a0a0a; --surface:#16181a; --surface-2:#202426;
+    --ink:#f2f4f6; --ink-soft:#b7bec6;
+    --accent:#d4ff3a; --accent-hover:#bce62e; --ok:#7fe3a4; --warn:#ffc266; --err:#ff9d87;
+    --border:#2c3134; --control:#7d858c;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0a0a0a; --surface:#16181a; --surface-2:#202426;
+  --ink:#f2f4f6; --ink-soft:#b7bec6;
+  --accent:#d4ff3a; --accent-hover:#bce62e; --ok:#7fe3a4; --warn:#ffc266; --err:#ff9d87;
+  --border:#2c3134; --control:#7d858c;
+}
+
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  overflow-x:hidden;
+}
+.wrap{max-width:1120px; margin:0 auto; padding:28px 18px 72px}
+h1{font-size:1.75rem; line-height:1.2; margin:0 0 6px}
+h2{font-size:1.2rem; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--border)}
+h3{font-size:1rem; margin:20px 0 8px}
+p{margin:0 0 12px; max-width:76ch}
+.lede{color:var(--ink-soft); max-width:76ch}
+code,kbd,pre,.mono{
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  font-size:15px;
+}
+code{background:var(--surface-2); padding:1px 4px; border-radius:3px; overflow-wrap:anywhere}
+pre{
+  background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  padding:10px 12px; overflow-x:auto; margin:0 0 12px; color:var(--ink);
+}
+a{color:var(--accent)}
+a:hover{text-decoration:none}
+:focus-visible{outline:3px solid var(--accent); outline-offset:2px; border-radius:3px}
+
+.panel{
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:8px; padding:14px 16px; margin:0 0 16px;
+}
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+@media (max-width:800px){ .grid{grid-template-columns:1fr} }
+
+label{display:block; font-weight:600; margin:0 0 5px}
+.hint{display:block; font-weight:400; color:var(--ink-soft); font-size:.875rem; margin:0 0 6px}
+textarea{
+  width:100%; min-height:230px; resize:vertical;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--control); border-radius:6px; padding:9px 10px;
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  font-size:14px; line-height:1.5;
+}
+.btnrow{display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 0}
+button{
+  font:inherit; font-weight:600; cursor:pointer;
+  background:var(--accent); color:var(--bg);
+  border:1px solid var(--accent); border-radius:6px; padding:9px 16px;
+}
+button.secondary{background:var(--surface); color:var(--ink); border-color:var(--control)}
+/* Never hover with opacity here. The primary button's label colour IS the page
+   background, so opacity composites the label back to the backdrop and drops the
+   light theme pair to 4.48:1, under the 4.50 AA minimum. Hover with tokens. */
+button:hover{background:var(--accent-hover); border-color:var(--accent-hover)}
+button.secondary:hover{background:var(--surface-2); border-color:var(--control)}
+
+.banner{border:1px solid var(--border); border-left-width:5px; border-radius:6px;
+  padding:11px 14px; margin:0 0 16px; background:var(--surface-2)}
+.banner .head{font-weight:700}
+.banner.pass{border-left-color:var(--ok)}
+.banner.pass .head{color:var(--ok)}
+.banner.fail{border-left-color:var(--err)}
+.banner.fail .head{color:var(--err)}
+.banner.note{border-left-color:var(--warn)}
+.banner.note .head{color:var(--warn)}
+.banner p{margin:4px 0 0; color:var(--ink)}
+
+blockquote{
+  margin:0 0 12px; padding:10px 14px; background:var(--surface-2);
+  border-left:5px solid var(--control); border-radius:0 6px 6px 0; color:var(--ink);
+}
+blockquote .src{display:block; margin-top:6px; color:var(--ink-soft); font-size:.875rem}
+
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:8px; margin:0 0 16px}
+table{border-collapse:collapse; width:100%; background:var(--surface)}
+caption{text-align:left; padding:10px 12px; color:var(--ink-soft); font-size:.9rem;
+  background:var(--surface-2); border-bottom:1px solid var(--border)}
+th,td{
+  text-align:left; vertical-align:top; padding:8px 11px;
+  border-bottom:1px solid var(--border); overflow-wrap:anywhere;
+}
+thead th{background:var(--surface-2); font-size:.85rem; letter-spacing:.02em; white-space:nowrap}
+tbody th{font-weight:600; background:var(--surface-2)}
+tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+td.mono,th.mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace; font-size:14px}
+
+.state{font-weight:700; display:block}
+.state .g{display:inline-block; width:1.1em}
+.s-granted{color:var(--ok)}
+.s-excluded{color:var(--warn)}
+.s-invalid,.s-unknown,.s-badurl{color:var(--err)}
+.s-nomatch{color:var(--ink-soft); font-weight:600}
+.s-absent{color:var(--ink-soft); font-weight:400; font-style:italic}
+.via{display:block; margin-top:3px; color:var(--ink-soft); font-size:14px;
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  overflow-wrap:anywhere}
+.note-sm{display:block; margin-top:3px; color:var(--warn); font-size:13px; font-weight:600}
+
+ul,ol{margin:0 0 12px; padding-left:22px; max-width:76ch}
+li{margin:0 0 5px}
+details{margin:0 0 12px}
+summary{cursor:pointer; font-weight:600; padding:4px 0}
+.checks{list-style:none; padding:0; margin:8px 0 0; max-height:420px; overflow-y:auto}
+.checks li{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  font-size:14px; margin:0 0 3px; overflow-wrap:anywhere}
+.pass-tag{color:var(--ok); font-weight:700}
+.fail-tag{color:var(--err); font-weight:700}
+.foot{margin-top:44px; padding-top:14px; border-top:1px solid var(--border);
+  color:var(--ink-soft); font-size:.9rem}
+.foot a{color:var(--accent)}
+.sr{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0 0 0 0); white-space:nowrap; border:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Extension manifest permission surface</h1>
+<p class="lede">Paste one browser extension <code>manifest.json</code> and a list of concrete URLs.
+This page parses every match pattern in the manifest, resolves each URL against each pattern bearing
+key independently, and prints, per key, whether the URL is granted and via exactly which pattern.
+Nothing is uploaded. There is no score and no advice.</p>
+
+<div id="selftest-banner" class="banner" role="status" aria-live="polite"></div>
+<div id="selftest-detail"></div>
+
+<h2>The six pattern bearing keys, and the two flags that differ</h2>
+<p>The same match pattern resolves differently depending on which manifest key it sits in. Two flags
+do all the work: whether the path is matched or ignored, and which URL schemes the key accepts. This
+table is the reference value of the tool, so it is rendered before you paste anything.</p>
+
+<div class="tablewrap">
+<table>
+<caption>Per key resolution flags, as implemented by this page</caption>
+<thead>
+<tr>
+  <th scope="col">Manifest key</th>
+  <th scope="col">Path</th>
+  <th scope="col">Schemes accepted</th>
+  <th scope="col">Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <th scope="row" class="mono">host_permissions</th>
+  <td>ignored</td>
+  <td class="mono">chrome, http, https, file, ftp, ws, wss, uuid-in-package</td>
+  <td>permissions_parser.cc:150 to :152 forces the path to <code>/*</code> after a successful parse. Mask from extension.cc:217 to :221.</td>
+</tr>
+<tr>
+  <th scope="row" class="mono">optional_host_permissions</th>
+  <td>ignored</td>
+  <td class="mono">chrome, http, https, file, ftp, ws, wss, uuid-in-package</td>
+  <td>Same code path, permissions_parser.cc:440 to :447 calls the same parser for both keys.</td>
+</tr>
+<tr>
+  <th scope="row" class="mono">content_scripts[].matches</th>
+  <td>matched as a glob</td>
+  <td class="mono">chrome, http, https, file, ftp, uuid-in-package</td>
+  <td>user_script.cc:69 to :73, narrowed at :109 to :118.</td>
+</tr>
+<tr>
+  <th scope="row" class="mono">content_scripts[].exclude_matches</th>
+  <td>matched as a glob</td>
+  <td class="mono">chrome, http, https, file, ftp, uuid-in-package</td>
+  <td>Same mask as the matches list it sits beside.</td>
+</tr>
+<tr>
+  <th scope="row" class="mono">externally_connectable.matches</th>
+  <td>matched as a glob</td>
+  <td class="mono">any scheme</td>
+  <td>externally_connectable.cc:108 constructs the pattern with SCHEME_ALL.</td>
+</tr>
+<tr>
+  <th scope="row" class="mono">web_accessible_resources[].matches</th>
+  <td>must be exactly <code>/*</code></td>
+  <td class="mono">any scheme</td>
+  <td>web_accessible_resources_info.cc:120 constructs the pattern with SCHEME_ALL, and :121 to
+  :124 reject the whole manifest unless <code>pattern.path()</code> is exactly <code>/*</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p>A wildcard scheme is a separate rule that overrides the column above: <code>*</code> narrows to
+<code>http</code> or <code>https</code> in every key, including the two that otherwise accept any
+scheme, because <code>SetScheme</code> intersects the mask down to those two the moment it sees
+<code>*</code>.</p>
+
+<h2>Resolve a manifest</h2>
+<div class="grid">
+  <div>
+    <label for="manifest-input">Manifest JSON</label>
+    <span class="hint" id="manifest-hint">Paste the whole manifest.json. Nothing leaves your browser.</span>
+    <textarea id="manifest-input" spellcheck="false" aria-describedby="manifest-hint"></textarea>
+  </div>
+  <div>
+    <label for="urls-input">Candidate URLs, one per line</label>
+    <span class="hint" id="urls-hint">Concrete URLs, with a scheme. Blank lines are ignored.</span>
+    <textarea id="urls-input" spellcheck="false" aria-describedby="urls-hint"></textarea>
+  </div>
+</div>
+
+<div class="btnrow">
+  <button type="button" id="btn-resolve">Resolve</button>
+  <button type="button" id="btn-sample" class="secondary">Load the sample</button>
+  <button type="button" id="btn-clear" class="secondary">Clear</button>
+  <button type="button" id="btn-selftest" class="secondary">Run self test</button>
+</div>
+
+<div id="announce" class="sr" role="status" aria-live="polite"></div>
+
+<h2>Result</h2>
+<div id="results"></div>
+
+<h2>What this tool does not claim</h2>
+<ul>
+  <li>It does not read a packaged extension. It reads the manifest text you paste, nothing else.</li>
+  <li>It does not check Chrome Web Store policy, review outcomes or listing requirements.</li>
+  <li>It does not tell you whether a permission is justified. That is a judgement about your product, not a property of the pattern.</li>
+  <li>It does not model runtime grants: <code>activeTab</code>, optional permissions the user has actually granted, <code>chrome.scripting</code> injections registered at runtime, or declarative net request rules.</li>
+  <li>It does not model the install warning path. Chrome can accept a pattern at parse time and still drop it later, for example the <code>CanSpecifyHostPermission</code> check that turns some host permissions into install warnings.</li>
+  <li>It does not percent decode paths before matching, does not apply internationalised domain name conversion, and does not canonicalise shorthand IP forms such as <code>127.1</code>. Chromium does all three. Patterns and URLs that depend on those will resolve differently here, so this tool refuses to be the last word on them.</li>
+</ul>
+
+<h2>Web accessible resources: the gate, and the three ways around it</h2>
+<p>When a manifest declares <code>web_accessible_resources</code>, the <code>matches</code> list is
+not the only exit. Under manifest version 3 the resolution is
+<code>entry.matches.MatchesURL(initiator_url)</code> inside
+<code>IsResourceWebAccessibleImpl</code>, at web_accessible_resources_info.cc:231, and the function
+returns false when nothing matches. The other ways through are a
+<code>chrome-extension://</code> initiator via <code>allow_all_extensions</code> or a listed
+<code>extension_ids</code> entry, and the legacy bypass at :199 to :201, which applies only when
+<code>manifest_version</code> is below 3. This page prints all of them beside the entry rather than
+implying <code>matches</code> is the whole gate.</p>
+<p>What this page reports is which pages may load your extension's files. It does not compute a
+fingerprinting verdict. The reason the default is empty is worth reading in the documentation's own
+words, once, as a quotation and not as this tool's output:</p>
+<blockquote>
+  <span>"By default no resources are web accessible, as this allows a malicious website to
+  fingerprint extensions that a user has installed or exploit vulnerabilities (for example XSS bugs)
+  in installed extensions."</span>
+  <span class="src">Chrome for Developers, web_accessible_resources reference. The same page states:
+  "A navigation from a web origin to an extension resource is blocked unless the resource is listed
+  as web accessible."</span>
+</blockquote>
+
+<h2>Grammar</h2>
+<p>A match pattern has four components, not three. The documentation gives the structure as
+<code>&lt;scheme&gt;://&lt;host&gt;:&lt;port&gt;/&lt;path&gt;</code> and states that the port is
+optional and "By default, this is treated as a wildcard with the same behavior as <code>:*</code>",
+and that "Match patterns match all ports unless an explicit port is specified."</p>
+<p>The ordering inside the parser is the part that a three component implementation gets wrong. The
+port is split off the authority <em>before</em> the host wildcard rule is applied. Chromium finds the
+<code>:</code> separator inside <code>host_and_port</code> at url_pattern.cc:269 to :300 and only
+then validates the host, and <code>MatchesPortPattern</code> at :907 is the whole of the port
+comparison: <code>return port_ == "*" || port_ == port;</code>. Validate the host first and
+<code>http://*:*/*</code> dies with a host wildcard error, taking every explicit port pattern with
+it. That row is in the self test above, and so is the Chromium test case
+<code>http://fo.*.ba:123/baz</code>, which reports a host wildcard error only if the port was
+removed first.</p>
+<p>Three more rules that surprise people, all verified against the source rather than the prose:</p>
+<ul>
+  <li>The path is stored verbatim. <code>URLPattern::SetPath</code> at url_pattern.cc:407 does no
+  expansion, so <code>https://*/</code> matches the path <code>/</code> and nothing else. The
+  documented claim that such a pattern "matches any URL using the https scheme" holds under
+  <code>host_permissions</code>, where the path is discarded, and does not hold under
+  <code>content_scripts</code>, where it is matched. That split is per key, and this page shows both
+  answers rather than picking one.</li>
+  <li>An explicit port requires a scheme with a default port. <code>IsValidPortForScheme</code> at
+  url_pattern.cc:98 to :113 rejects any non wildcard port when
+  <code>url::DefaultPortForScheme</code> returns unspecified, and that function, at
+  url_canon_stdurl.cc:122 to :148, knows only http, https, ftp, ws and wss. The wildcard scheme
+  <code>*</code> is not among them, so <code>*://example.com:8443/*</code> is rejected as an invalid
+  port. Write <code>https://example.com:8443/*</code> instead.</li>
+  <li>The URL is canonicalised before it is matched; the pattern is not. Chromium matches against
+  <code>GURL::PathForRequest()</code>, so <code>/a/../b</code> has already become <code>/b</code>,
+  a backslash has already become a forward slash, a space has already become <code>%20</code>,
+  and a tab, carriage return or line feed has already been deleted outright rather than encoded,
+  by the time the glob sees it. This page does the same four things, so
+  <code>https://example.com/b*</code> grants <code>https://example.com/a/../b</code> here exactly
+  as it does in Chrome. Matching the raw text instead prints a confident "no match" for a URL the
+  manifest really grants, which is the fail open direction.</li>
+</ul>
+
+<h2>Sources</h2>
+<ul>
+  <li>Chrome for Developers, Match patterns, at developer.chrome.com/docs/extensions/develop/concepts/match-patterns</li>
+  <li>Chrome for Developers, web_accessible_resources manifest reference</li>
+  <li>Chromium: extensions/common/url_pattern.cc and url_pattern_unittest.cc</li>
+  <li>Chromium: extensions/common/manifest_handlers/permissions_parser.cc, externally_connectable.cc, web_accessible_resources_info.cc</li>
+  <li>Chromium: extensions/common/user_script.cc, extensions/common/extension.cc, url/url_util.cc, url/url_canon_stdurl.cc, content/common/url_schemes.cc, chrome/common/chrome_content_client.cc</li>
+</ul>
+<p>Every line number on this page was read from the file it names, in the main branch, on
+2026-09-08. Line numbers move as the branch moves; the function names do not.</p>
+
+<div class="foot">
+  <p>Independent and unaffiliated with Google, Chromium or any browser vendor. Behaviour was
+  reimplemented from the published specifications and source listed above. No third party code is
+  reproduced here. MIT licensed, Copyright (c) 2026 0xelitesystem.
+  Built by <a href="https://elitesystem.ai">elitesystem.ai</a></p>
+</div>
+
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ============================================================
+   1. Match pattern engine
+   ============================================================ */
+
+var STANDARD_SCHEMES = ['http','https','file','ftp','ws','wss','filesystem',
+  'chrome','chrome-untrusted','chrome-error','devtools','chrome-extension',
+  'chrome-native','chrome-search','isolated-app'];
+
+var DEFAULT_PORTS = { http:'80', https:'443', ftp:'21', ws:'80', wss:'443' };
+
+var SCHEMES_HOST_PERM = ['chrome','http','https','file','ftp','ws','wss','uuid-in-package'];
+var SCHEMES_CONTENT_SCRIPT = ['chrome','http','https','file','ftp','uuid-in-package'];
+var SCHEMES_ANY = null;
+
+var MAX_INPUT_CHARS = 400000;
+var MAX_PATTERN_LEN = 2048;
+var MAX_URL_LEN = 4096;
+var MAX_URLS = 200;
+var MAX_PATTERNS_PER_KEY = 500;
+var MAX_ENTRIES = 200;
+var GLOB_STEP_LIMIT = 200000;
+/* GLOB_STEP_LIMIT bounds ONE call. Nothing bounds the number of calls, and
+   patterns x URLs x 200000 steps is minutes of frozen tab on input that fits
+   inside every other cap here, so the run carries its own budget as well. */
+var GLOB_RUN_BUDGET = 5000000;
+var globBudgetLeft = GLOB_RUN_BUDGET;
+
+function schemeAllowed(scheme, mask) {
+  if (mask === SCHEMES_ANY) return true;
+  for (var i = 0; i < mask.length; i++) { if (mask[i] === scheme) return true; }
+  return false;
+}
+function intersectHttpHttps(mask) {
+  if (mask === SCHEMES_ANY) return ['http','https'];
+  var out = [];
+  for (var i = 0; i < mask.length; i++) {
+    if (mask[i] === 'http' || mask[i] === 'https') out.push(mask[i]);
+  }
+  return out;
+}
+function isStandardScheme(scheme) {
+  if (scheme === '*') return true;
+  for (var i = 0; i < STANDARD_SCHEMES.length; i++) {
+    if (STANDARD_SCHEMES[i] === scheme) return true;
+  }
+  return false;
+}
+function portValidForScheme(scheme, port) {
+  if (port === '*') return true;
+  if (!Object.prototype.hasOwnProperty.call(DEFAULT_PORTS, scheme)) return false;
+  if (!/^-?[0-9]{1,10}$/.test(port)) return false;
+  var n = Number(port);
+  return n >= 0 && n < 65536;
+}
+function badHostChar(ch) {
+  var c = ch.charCodeAt(0);
+  if (c <= 32 || c === 127) return true;
+  return ch === '/' || ch === '?' || ch === '#' || ch === '@' || ch === '[' ||
+         ch === ']' || ch === '<' || ch === '>' || ch === '"' || ch === '{' ||
+         ch === '}' || ch === '|' || ch === '^' || ch === ':' || ch === '*' ||
+         ch === String.fromCharCode(92) || ch === String.fromCharCode(96);
+}
+function canonHost(h) {
+  if (h === '') return '';
+  if (h.charAt(0) === '[') {
+    return /^\[[0-9a-fA-F:.]+\]$/.test(h) ? h.toLowerCase() : null;
+  }
+  for (var i = 0; i < h.length; i++) { if (badHostChar(h.charAt(i))) return null; }
+  return h.toLowerCase();
+}
+function trimTrailingDots(h) {
+  var e = h.length;
+  while (e > 0 && h.charAt(e - 1) === '.') e--;
+  return h.slice(0, e);
+}
+function hostIsIpAddress(h) {
+  if (h.charAt(0) === '[') return true;
+  if (!/^[0-9]{1,3}(\.[0-9]{1,3}){3}$/.test(h)) return false;
+  var parts = h.split('.');
+  for (var i = 0; i < 4; i++) { if (Number(parts[i]) > 255) return false; }
+  return true;
+}
+
+/* Refusal strings are Chromium's own ParseResult messages, so a reason printed
+   here is the reason Chromium would print. */
+function ParseError(msg) { this.name = 'ParseError'; this.message = msg; }
+
+function parsePattern(str, mask) {
+  if (typeof str !== 'string') throw new ParseError('Pattern is not a string.');
+  if (str.length > MAX_PATTERN_LEN) throw new ParseError('Pattern longer than this tool accepts.');
+  if (str === '<all_urls>') {
+    return { raw: str, allUrls: true, scheme: '*', host: '', matchSubdomains: true,
+             port: '*', path: '/*', mask: mask };
+  }
+  var schemeEnd = str.indexOf('://');
+  var standardSep = true;
+  if (schemeEnd < 0) { schemeEnd = str.indexOf(':'); standardSep = false; }
+  if (schemeEnd < 0) throw new ParseError('Missing scheme separator.');
+  var scheme = str.slice(0, schemeEnd);
+  var effMask;
+  if (scheme === '*') {
+    effMask = intersectHttpHttps(mask);
+  } else {
+    if (!schemeAllowed(scheme, mask)) throw new ParseError('Invalid scheme.');
+    effMask = mask;
+  }
+  var std = isStandardScheme(scheme);
+  if (std !== standardSep) throw new ParseError('Wrong scheme separator.');
+  var pos = schemeEnd + (std ? 3 : 1);
+  if (pos >= str.length) throw new ParseError('Host can not be empty.');
+
+  var host = '', port = '*', path, matchSub = false;
+  if (!std) {
+    path = str.slice(pos);
+  } else if (scheme === 'file') {
+    var fe = str.indexOf('/', pos);
+    path = (fe < 0) ? str.slice(pos - 1) : str.slice(fe);
+  } else {
+    var he = str.indexOf('/', pos);
+    if (he === pos) throw new ParseError('Host can not be empty.');
+    if (he < 0) throw new ParseError('Empty path.');
+    var hostAndPort = str.slice(pos, he);
+    var sepPos = -1;
+    /* PORT FIRST, THEN HOST. Reversing these two lines breaks every port pattern. */
+    if (hostAndPort.charAt(0) !== '[') {
+      sepPos = hostAndPort.indexOf(':');
+    } else {
+      var close = hostAndPort.indexOf(']');
+      if (close < 0) throw new ParseError('Invalid host.');
+      if (close === 1) throw new ParseError('Host can not be empty.');
+      if (close < hostAndPort.length - 1) {
+        if (hostAndPort.charAt(close + 1) !== ':') throw new ParseError('Invalid host.');
+        sepPos = close + 1;
+      }
+    }
+    if (sepPos >= 0) {
+      var p = hostAndPort.slice(sepPos + 1);
+      if (!portValidForScheme(scheme, p)) throw new ParseError('Invalid port.');
+      port = p;
+    }
+    var hostPiece = (sepPos >= 0) ? hostAndPort.slice(0, sepPos) : hostAndPort;
+    if (hostPiece === '') throw new ParseError('Host can not be empty.');
+    if (hostPiece === '*') { matchSub = true; hostPiece = ''; }
+    else if (hostPiece.slice(0, 2) === '*.') {
+      if (hostPiece.length === 2) throw new ParseError('Host can not be empty.');
+      matchSub = true; hostPiece = hostPiece.slice(2);
+    }
+    host = hostPiece;
+    path = str.slice(he);
+  }
+  if (host.indexOf('*') >= 0) throw new ParseError('Invalid host wildcard.');
+  if (host !== '') {
+    var c = canonHost(host);
+    if (c === null || c === '') throw new ParseError('Invalid host.');
+    host = c;
+  }
+  return { raw: str, allUrls: false, scheme: scheme, host: host,
+           matchSubdomains: matchSub, port: port, path: path, mask: effMask };
+}
+
+/* RFC 3986 section 5.2.4, remove_dot_segments. The input always starts with "/". */
+function removeDotSegments(p) {
+  var segs = p.split('/'), out = [];
+  for (var i = 1; i < segs.length; i++) {
+    var seg = segs[i], last = (i === segs.length - 1);
+    if (seg === '.') { if (last) out.push(''); }
+    else if (seg === '..') { if (out.length > 0) out.pop(); if (last) out.push(''); }
+    else out.push(seg);
+  }
+  return '/' + out.join('/');
+}
+
+/* The URL standard's path and query percent encode sets, which is what Chromium
+   applies. Percent signs already in the input are left exactly as written, because
+   this tool does not decode them either. Returns null on a lone surrogate, and a
+   null URL is reported as unparseable, never as a no match. */
+var PATH_ESCAPE = /[\u0000-\u0020\u007f"<>^`{}|]/;
+var QUERY_ESCAPE = /[\u0000-\u0020\u007f"'<>]/;
+var TAB_CH = String.fromCharCode(9), LF_CH = String.fromCharCode(10), CR_CH = String.fromCharCode(13);
+function pctEncode(s, set) {
+  var out = '';
+  for (var i = 0; i < s.length; i++) {
+    var ch = s.charAt(i), c = s.charCodeAt(i);
+    if (c > 127) {
+      var chunk = ch;
+      if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) { chunk = s.slice(i, i + 2); i++; }
+      try { out += encodeURIComponent(chunk); } catch (e) { return null; }
+    } else if (set.test(ch)) {
+      out += '%' + (c < 16 ? '0' : '') + c.toString(16).toUpperCase();
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/* Chromium matches against GURL::PathForRequest(), which is the CANONICALISED path
+   plus the query, with the fragment dropped. Matching the raw text instead prints
+   "no match" for URLs Chrome grants, which is the fail open direction. */
+function canonPath(path) {
+  var p = path;
+  if (p.charAt(0) !== '/') p = '/' + p;
+  if (p.indexOf('.') >= 0) p = removeDotSegments(p);
+  return pctEncode(p, PATH_ESCAPE);
+}
+function canonQuery(q) {
+  if (q === '') return '';
+  return pctEncode(q, QUERY_ESCAPE);
+}
+
+function splitUrl(u) {
+  if (typeof u !== 'string') return null;
+  if (u.length === 0 || u.length > MAX_URL_LEN) return null;
+  /* GURL strips leading and trailing C0 controls and spaces from the input.
+     Scanned, not stripped with an alternation regex: /^x+|x+$/ backtracks. */
+  var lo = 0, hi = u.length;
+  while (lo < hi && u.charCodeAt(lo) <= 32) lo++;
+  while (hi > lo && u.charCodeAt(hi - 1) <= 32) hi--;
+  u = u.slice(lo, hi);
+  if (u === '') return null;
+  /* Chromium REMOVES tab, line feed and carriage return from anywhere in the spec
+     before it parses, so a tab inside the path leaves /ab and not /a%09b. Scanned,
+     and only when one is present, so an ordinary URL is not rebuilt character by
+     character. Encoding them instead resolves the URL against a path the browser never sees. */
+  if (u.indexOf(TAB_CH) >= 0 || u.indexOf(LF_CH) >= 0 || u.indexOf(CR_CH) >= 0) {
+    var kept = '';
+    for (var wi = 0; wi < u.length; wi++) {
+      var wc = u.charCodeAt(wi);
+      if (wc !== 9 && wc !== 10 && wc !== 13) kept += u.charAt(wi);
+    }
+    u = kept;
+    if (u === '') return null;
+  }
+  /* A special scheme treats the backslash as a forward slash everywhere before the
+     query, including inside the authority, so normalise it there and only there. */
+  var sm = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(u);
+  if (sm) {
+    var sc0 = sm[1].toLowerCase();
+    if (sc0 === 'file' || Object.prototype.hasOwnProperty.call(DEFAULT_PORTS, sc0)) {
+      var qh = u.search(/[?#]/);
+      var head = (qh < 0) ? u : u.slice(0, qh);
+      var tail = (qh < 0) ? '' : u.slice(qh);
+      u = sm[0] + head.slice(sm[0].length).split(String.fromCharCode(92)).join('/') + tail;
+    }
+  }
+  var m = /^([a-zA-Z][a-zA-Z0-9+.\-]*):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?/.exec(u);
+  if (!m) return null;
+  var scheme = m[1].toLowerCase();
+  var authority = m[2];
+  var path = m[3] || '';
+  var query = m[4] || '';
+  var at = authority.lastIndexOf('@');
+  if (at >= 0) authority = authority.slice(at + 1);
+  var host = authority, explicitPort = '';
+  if (authority.charAt(0) === '[') {
+    var close = authority.indexOf(']');
+    if (close < 0) return null;
+    host = authority.slice(0, close + 1);
+    var rest = authority.slice(close + 1);
+    if (rest !== '') {
+      if (rest.charAt(0) !== ':') return null;
+      explicitPort = rest.slice(1);
+    }
+  } else {
+    var ci = authority.indexOf(':');
+    if (ci >= 0) { host = authority.slice(0, ci); explicitPort = authority.slice(ci + 1); }
+  }
+  if (explicitPort !== '') {
+    if (!/^[0-9]{1,5}$/.test(explicitPort)) return null;
+    if (Number(explicitPort) > 65535) return null;
+  }
+  if (scheme !== 'file' && host === '') return null;
+  var ch = canonHost(host);
+  if (ch === null) return null;
+  host = ch;
+  if (path === '') path = '/';
+  var cpath = canonPath(path);
+  if (cpath === null) return null;
+  var cquery = canonQuery(query);
+  if (cquery === null) return null;
+  var effPort;
+  if (explicitPort !== '') effPort = String(Number(explicitPort));
+  else if (Object.prototype.hasOwnProperty.call(DEFAULT_PORTS, scheme)) effPort = DEFAULT_PORTS[scheme];
+  else effPort = '-1';
+  return { raw: u, scheme: scheme, host: host, port: effPort, path: cpath + cquery };
+}
+
+/* Linear wildcard match. Only '*' is a wildcard, matching Chromium, which escapes
+   '?' and the backslash before handing the path to its glob. No regular expression
+   is built from user input, so a hostile path cannot cause catastrophic
+   backtracking. Returns null if the step budget is exhausted, and null is a loud
+   unknown at every call site, never a quiet false. */
+function globMatch(s, p) {
+  var si = 0, pi = 0, star = -1, ss = 0, steps = 0;
+  while (si < s.length) {
+    if (++steps > GLOB_STEP_LIMIT || --globBudgetLeft < 0) return null;
+    /* The wildcard branch is tested FIRST. Test literal equality first and a
+       literal '*' in the URL path is consumed as an ordinary character, no
+       backtrack anchor is recorded, and the matcher dead ends on input it
+       should accept. */
+    if (pi < p.length && p.charAt(pi) === '*') { star = pi; pi++; ss = si; }
+    else if (pi < p.length && p.charAt(pi) === s.charAt(si)) { si++; pi++; }
+    else if (star >= 0) { pi = star + 1; ss++; si = ss; }
+    else return false;
+  }
+  while (pi < p.length && p.charAt(pi) === '*') pi++;
+  return pi === p.length;
+}
+
+function matchesPath(testPath, patPath) {
+  /* url_pattern.cc MatchesPath: a pattern path of "<test>/*" also matches "<test>". */
+  if (patPath.length === testPath.length + 2 &&
+      patPath.slice(0, testPath.length) === testPath &&
+      patPath.slice(-2) === '/*') return true;
+  return globMatch(testPath, patPath);
+}
+
+function matchesHost(pat, testHost) {
+  var th = trimTrailingDots(testHost);
+  var ph = trimTrailingDots(pat.host);
+  if (th === ph) return true;
+  if (pat.matchSubdomains && ph === '') return true;
+  if (!pat.matchSubdomains) return false;
+  if (hostIsIpAddress(th)) return false;
+  /* Label boundary test. Never write this as indexOf or includes: that is the
+     substring bug that lets www.example.com.evil.tld pass for *.example.com. */
+  if (th.length <= ph.length + 1) return false;
+  if (th.slice(th.length - ph.length) !== ph) return false;
+  return th.charAt(th.length - ph.length - 1) === '.';
+}
+
+/* true, false, or null. null means the matcher refused and the caller must say so. */
+function matchOne(pat, url, ignorePath) {
+  if (!schemeAllowed(url.scheme, pat.mask)) return false;
+  if (!(pat.scheme === '*' || url.scheme === pat.scheme)) return false;
+  if (pat.allUrls) return true;
+  if (pat.scheme !== 'file' && !matchesHost(pat, url.host)) return false;
+  if (!(pat.port === '*' || pat.port === url.port)) return false;
+  if (ignorePath) return true;
+  return matchesPath(url.path, pat.path);
+}
+
+/* ============================================================
+   2. The per key spine
+   ============================================================ */
+
+var KEYS = [
+  { id:'host_permissions',                 label:'host_permissions',                 ignorePath:true,  mask:SCHEMES_HOST_PERM },
+  { id:'optional_host_permissions',        label:'optional_host_permissions',        ignorePath:true,  mask:SCHEMES_HOST_PERM },
+  { id:'content_scripts.matches',          label:'content_scripts.matches',          ignorePath:false, mask:SCHEMES_CONTENT_SCRIPT },
+  { id:'content_scripts.exclude_matches',  label:'content_scripts.exclude_matches',  ignorePath:false, mask:SCHEMES_CONTENT_SCRIPT },
+  { id:'externally_connectable.matches',   label:'externally_connectable.matches',   ignorePath:false, mask:SCHEMES_ANY },
+  { id:'web_accessible_resources.matches', label:'web_accessible_resources[].matches', ignorePath:false, mask:SCHEMES_ANY, pathMustBeSlashStar:true }
+];
+
+/* ============================================================
+   3. Self test. The condition of shipping a results table.
+   ============================================================ */
+
+var HP = SCHEMES_HOST_PERM, CS = SCHEMES_CONTENT_SCRIPT, ANY = SCHEMES_ANY;
+
+function parseRes(p, mask) {
+  try { parsePattern(p, mask); return 'Success.'; }
+  catch (e) { return e.message; }
+}
+function parsePort(p, mask) {
+  try { return parsePattern(p, mask).port; } catch (e) { return 'ERR:' + e.message; }
+}
+function mm(pat, url, ignorePath, mask) {
+  var P;
+  try { P = parsePattern(pat, mask === undefined ? CS : mask); }
+  catch (e) { return 'PARSE_ERR:' + e.message; }
+  var U = splitUrl(url);
+  if (!U) return 'UNPARSEABLE_URL';
+  return matchOne(P, U, !!ignorePath);
+}
+
+function runSelfTest() {
+  var checks = [];
+  function chk(label, got, want) {
+    checks.push({ label: label, ok: got === want, got: got, want: want });
+  }
+
+  /* Chromium url_pattern_unittest.cc, ParseInvalid table. */
+  var invalidRows = [
+    ['http', 'Missing scheme separator.'],
+    ['http:', 'Wrong scheme separator.'],
+    ['http:/', 'Wrong scheme separator.'],
+    ['about://', 'Wrong scheme separator.'],
+    ['http://', 'Host can not be empty.'],
+    ['http:///', 'Host can not be empty.'],
+    ['http://:1234/', 'Host can not be empty.'],
+    ['http://*./', 'Host can not be empty.'],
+    ['http://*foo/bar', 'Invalid host wildcard.'],
+    ['http://foo.*.bar/baz', 'Invalid host wildcard.'],
+    ['http://fo.*.ba:123/baz', 'Invalid host wildcard.'],
+    ['http:/bar', 'Wrong scheme separator.'],
+    ['http://bar', 'Empty path.'],
+    ['http://foo.*/bar', 'Invalid host wildcard.']
+  ];
+  for (var i = 0; i < invalidRows.length; i++) {
+    chk('parse ' + invalidRows[i][0], parseRes(invalidRows[i][0], ANY), invalidRows[i][1]);
+  }
+  chk('parse host containing a null byte',
+      parseRes('http://' + String.fromCharCode(0) + 'www/', ANY), 'Invalid host.');
+
+  /* Chromium url_pattern_unittest.cc, Ports table. */
+  var portRows = [
+    ['http://foo:1234/', 'Success.', '1234'],
+    ['http://foo:1234/bar', 'Success.', '1234'],
+    ['http://*.foo:1234/', 'Success.', '1234'],
+    ['http://*.foo:1234/bar', 'Success.', '1234'],
+    ['http://foo:/', 'Invalid port.', null],
+    ['http://*:1234/', 'Success.', '1234'],
+    ['http://*:*/', 'Success.', '*'],
+    ['http://foo:*/', 'Success.', '*'],
+    ['http://*.foo:/', 'Invalid port.', null],
+    ['http://foo:com/', 'Invalid port.', null],
+    ['http://foo:123456/', 'Invalid port.', null],
+    ['http://foo:80:80/monkey', 'Invalid port.', null],
+    ['file://foo:1234/bar', 'Success.', '*'],
+    ['chrome://foo:1234/bar', 'Invalid port.', null],
+    ['http://*/:1234', 'Success.', '*'],
+    ['http://*.foo/bar:1234', 'Success.', '*'],
+    ['http://foo/bar:1234/path', 'Success.', '*']
+  ];
+  for (var j = 0; j < portRows.length; j++) {
+    chk('parse ' + portRows[j][0], parseRes(portRows[j][0], ANY), portRows[j][1]);
+    if (portRows[j][2] !== null) {
+      chk('port of ' + portRows[j][0], parsePort(portRows[j][0], ANY), portRows[j][2]);
+    }
+  }
+
+  /* Explicit port matching, Chromium Match17 and Match18. */
+  chk('http://www.example.com:80/foo matches the same URL',
+      mm('http://www.example.com:80/foo', 'http://www.example.com:80/foo', false, ANY), true);
+  chk('an explicit :80 matches a URL with no port, because 80 is the http default',
+      mm('http://www.example.com:80/foo', 'http://www.example.com/foo', false, ANY), true);
+  chk('an explicit :80 rejects :8080',
+      mm('http://www.example.com:80/foo', 'http://www.example.com:8080/foo', false, ANY), false);
+  chk('an explicit :* accepts :8080',
+      mm('http://www.example.com:*/foo', 'http://www.example.com:8080/foo', false, ANY), true);
+
+  /* The four component grammar. These rows fail on a three component parser. */
+  chk('http://*:*/* is VALID', parseRes('http://*:*/*', CS), 'Success.');
+  chk('http://*:*/* matches http://localhost:1234/a',
+      mm('http://*:*/*', 'http://localhost:1234/a'), true);
+  chk('http://*:*/* matches http://127.0.0.1/a',
+      mm('http://*:*/*', 'http://127.0.0.1/a'), true);
+  chk('http://localhost:3000/* accepts :3000',
+      mm('http://localhost:3000/*', 'http://localhost:3000/a'), true);
+  chk('http://localhost:3000/* rejects :3001',
+      mm('http://localhost:3000/*', 'http://localhost:3001/a'), false);
+  chk('http://localhost:3000/* rejects the default port',
+      mm('http://localhost:3000/*', 'http://localhost/a'), false);
+  chk('https://example.com:8443/* accepts :8443',
+      mm('https://example.com:8443/*', 'https://example.com:8443/a'), true);
+  chk('https://example.com:8443/* rejects the default port',
+      mm('https://example.com:8443/*', 'https://example.com/a'), false);
+  chk('*://example.com:8443/* is INVALID, the wildcard scheme has no default port',
+      parseRes('*://example.com:8443/*', CS), 'Invalid port.');
+
+  /* Documented example patterns. */
+  chk('https://*/* matches any https URL', mm('https://*/*', 'https://example.com/anything'), true);
+  chk('https://*/foo* matches https://example.com/foo/bar.html',
+      mm('https://*/foo*', 'https://example.com/foo/bar.html'), true);
+  chk('https://*/foo* matches https://www.google.com/foo',
+      mm('https://*/foo*', 'https://www.google.com/foo'), true);
+  chk('https://*.google.com/foo*bar matches https://www.google.com/foo/baz/bar',
+      mm('https://*.google.com/foo*bar', 'https://www.google.com/foo/baz/bar'), true);
+  chk('https://*.google.com/foo*bar matches https://docs.google.com/foobar',
+      mm('https://*.google.com/foo*bar', 'https://docs.google.com/foobar'), true);
+  chk('file:///foo* matches file:///foo/bar.html', mm('file:///foo*', 'file:///foo/bar.html'), true);
+  chk('file:///foo* matches file:///foo', mm('file:///foo*', 'file:///foo'), true);
+  chk('http://127.0.0.1/* matches http://127.0.0.1/', mm('http://127.0.0.1/*', 'http://127.0.0.1/'), true);
+  chk('http://127.0.0.1/* matches http://127.0.0.1/foo/bar.html',
+      mm('http://127.0.0.1/*', 'http://127.0.0.1/foo/bar.html'), true);
+  chk('http://localhost/* matches any localhost port',
+      mm('http://localhost/*', 'http://localhost:8080/x'), true);
+  chk('*://mail.google.com/* matches http', mm('*://mail.google.com/*', 'http://mail.google.com/a'), true);
+  chk('*://mail.google.com/* matches https', mm('*://mail.google.com/*', 'https://mail.google.com/a'), true);
+  chk('*://mail.google.com/* does NOT match file', mm('*://mail.google.com/*', 'file://mail.google.com/a'), false);
+
+  /* all_urls under different per key masks. */
+  chk('<all_urls> matches https', mm('<all_urls>', 'https://example.com/a'), true);
+  chk('<all_urls> matches ftp under the content script mask',
+      mm('<all_urls>', 'ftp://example.com/a', false, CS), true);
+  chk('<all_urls> does NOT match ws under the content script mask',
+      mm('<all_urls>', 'ws://example.com/a', false, CS), false);
+  chk('<all_urls> matches ws under the host permission mask',
+      mm('<all_urls>', 'ws://example.com/a', true, HP), true);
+
+  /* Suffix versus substring. */
+  chk('https://*.example.com/* REJECTS https://www.example.com.evil.tld/',
+      mm('https://*.example.com/*', 'https://www.example.com.evil.tld/'), false);
+  chk('https://*.example.com/* accepts the bare apex https://example.com/',
+      mm('https://*.example.com/*', 'https://example.com/'), true);
+  chk('https://*.example.com/* accepts https://www.example.com/',
+      mm('https://*.example.com/*', 'https://www.example.com/'), true);
+  chk('https://*.example.com/* REJECTS https://notexample.com/',
+      mm('https://*.example.com/*', 'https://notexample.com/'), false);
+  chk('https://shop.example.com/* REJECTS the lookalike shop.example.com.evil.tld',
+      mm('https://shop.example.com/*', 'https://shop.example.com.evil.tld/dp/X'), false);
+  chk('https://www.amazon.com/* REJECTS https://www.amazon.com.evil.tld/dp/B0ABCDEFGH',
+      mm('https://www.amazon.com/*', 'https://www.amazon.com.evil.tld/dp/B0ABCDEFGH'), false);
+  chk('https://www.amazon.com/* accepts the real https://www.amazon.com/dp/B0ABCDEFGH',
+      mm('https://www.amazon.com/*', 'https://www.amazon.com/dp/B0ABCDEFGH'), true);
+  chk('an exact host does NOT match its own subdomain',
+      mm('https://example.com/*', 'https://www.example.com/'), false);
+  chk('*.example.com does NOT subdomain match an IP host',
+      mm('https://*.0.0.1/*', 'https://127.0.0.1/'), false);
+
+  /* Invalid wildcard placements. */
+  chk('https://*example.com/* is INVALID', parseRes('https://*example.com/*', CS), 'Invalid host wildcard.');
+  chk('https://ex*ple.com/* is INVALID', parseRes('https://ex*ple.com/*', CS), 'Invalid host wildcard.');
+  chk('https://example.*/* is INVALID', parseRes('https://example.*/*', CS), 'Invalid host wildcard.');
+
+  /* The per key path split. Same pattern, same URL, two different answers. */
+  chk('https://*/ GRANTS /foo/bar.html when the path is ignored',
+      mm('https://*/', 'https://example.com/foo/bar.html', true, HP), true);
+  chk('https://*/ does NOT match /foo/bar.html when the path is matched',
+      mm('https://*/', 'https://example.com/foo/bar.html', false, CS), false);
+  chk('http://127.0.0.1/ GRANTS /foo/bar.html when the path is ignored',
+      mm('http://127.0.0.1/', 'http://127.0.0.1/foo/bar.html', true, HP), true);
+  chk('http://127.0.0.1/ does NOT match /foo/bar.html when the path is matched',
+      mm('http://127.0.0.1/', 'http://127.0.0.1/foo/bar.html', false, CS), false);
+
+  /* The per key scheme mask. */
+  chk('chrome-extension:// is rejected by the content script mask',
+      parseRes('chrome-extension://abcdefghijklmnop/*', CS), 'Invalid scheme.');
+  chk('chrome-extension:// is accepted where the mask is any scheme',
+      parseRes('chrome-extension://abcdefghijklmnop/*', ANY), 'Success.');
+  chk('ws:// is rejected by the content script mask', parseRes('ws://example.com/*', CS), 'Invalid scheme.');
+  chk('ws:// is accepted by the host permission mask', parseRes('ws://example.com/*', HP), 'Success.');
+  chk('a wildcard scheme is still only http or https, even under an any scheme mask',
+      mm('*://example.com/*', 'ftp://example.com/a', false, ANY), false);
+
+  /* Path details. */
+  chk('a pattern path of /foo/* also matches the path /foo',
+      mm('https://example.com/foo/*', 'https://example.com/foo'), true);
+  chk('the query string is part of the matched path',
+      mm('https://example.com/a', 'https://example.com/a?b=c'), false);
+  chk('a trailing star covers the query string',
+      mm('https://example.com/a*', 'https://example.com/a?b=c'), true);
+  chk('the fragment is not part of the matched path',
+      mm('https://example.com/a', 'https://example.com/a#frag'), true);
+  chk('glob: exact', globMatch('/abc', '/abc'), true);
+  chk('glob: star in the middle', globMatch('/foo/baz/bar', '/foo*bar'), true);
+  chk('glob: a question mark is a literal, not a wildcard', globMatch('/ab', '/a?'), false);
+  chk('glob: a trailing star may match nothing', globMatch('/a', '/a*'), true);
+  /* A literal star in the URL path. The matcher must treat the pattern's star as
+     a wildcard before it treats the URL's star as a character to compare, or it
+     dead ends and under reports the grant. */
+  chk('glob: a literal star in the path is covered by a wildcard', globMatch('/*x', '/*'), true);
+  chk('glob: a literal star matches itself', globMatch('/a*b', '/a*b'), true);
+  chk('https://example.com/* GRANTS a path containing a literal star',
+      mm('https://example.com/*', 'https://example.com/*x'), true);
+  chk('an exclude pattern of https://example.com/a/* covers the path /a/*b',
+      mm('https://example.com/a/*', 'https://example.com/a/*b'), true);
+
+  /* The URL path is canonicalised before it is matched, because that is what
+     Chromium matches against. Matching the raw text under reports the grant. */
+  chk('a dot segment in the URL path is resolved before matching',
+      mm('https://example.com/b*', 'https://example.com/a/../b'), true);
+  chk('a single dot segment is resolved before matching',
+      mm('https://example.com/a/b', 'https://example.com/a/./b'), true);
+  chk('a leading dot segment can not climb above the root',
+      mm('https://example.com/a', 'https://example.com/../../a'), true);
+  chk('a backslash is a path separator for a special scheme',
+      mm('https://example.com/a/b', 'https://example.com' + String.fromCharCode(92) + 'a' + String.fromCharCode(92) + 'b'), true);
+  chk('a space in the URL path is percent encoded before matching',
+      mm('https://example.com/a%20b', 'https://example.com/a b'), true);
+  chk('a raw space does NOT match a pattern written with a raw space',
+      mm('https://example.com/a b', 'https://example.com/a b'), false);
+  chk('canonicalisation does not touch the query string dots',
+      mm('https://example.com/a?x=../y', 'https://example.com/a?x=../y'), true);
+
+  /* The two characters Chromium treats specially and a three component parser
+     usually does not: the vertical bar is escaped in the path, while tab, line
+     feed and carriage return are deleted from the spec rather than escaped. */
+  chk('a vertical bar in the URL path is percent encoded before matching',
+      mm('https://example.com/a%7Cb', 'https://example.com/a|b'), true);
+  chk('a raw vertical bar does NOT match a pattern written with a raw vertical bar',
+      mm('https://example.com/a|b', 'https://example.com/a|b'), false);
+  chk('a tab in the URL path is removed, not percent encoded',
+      mm('https://example.com/ab', 'https://example.com/a' + String.fromCharCode(9) + 'b'), true);
+  chk('a carriage return and line feed pair is removed from the URL path',
+      mm('https://example.com/ab', 'https://example.com/a' + String.fromCharCode(13) + String.fromCharCode(10) + 'b'), true);
+  chk('a tab inside the URL host is removed before the host is compared',
+      mm('https://example.com/*', 'https://exam' + String.fromCharCode(9) + 'ple.com/x'), true);
+  chk('a tab inside the URL scheme is removed before the scheme is compared',
+      mm('https://example.com/*', 'ht' + String.fromCharCode(9) + 'tps://example.com/x'), true);
+
+  /* web_accessible_resources[].matches carries one extra rule of its own. */
+  function warParse(p) {
+    var r = parseAll([p], ANY, true);
+    return r[0].error === null ? 'Success.' : r[0].error;
+  }
+  chk('web_accessible_resources REJECTS a matches path that is not /*',
+      warParse('https://example.com/foo*'), WAR_PATH_ERROR);
+  chk('web_accessible_resources REJECTS the bare slash path',
+      warParse('https://example.com/'), WAR_PATH_ERROR);
+  chk('web_accessible_resources accepts https://example.com/*',
+      warParse('https://example.com/*'), 'Success.');
+  chk('web_accessible_resources accepts <all_urls>, whose path is /*',
+      warParse('<all_urls>'), 'Success.');
+  chk('the same non /* path is fine under content_scripts',
+      parseRes('https://example.com/foo*', CS), 'Success.');
+
+  /* Unparseable URLs must never read as "not granted". */
+  chk('a URL with no scheme is unparseable, not a no match',
+      mm('https://*/*', 'example.com/a'), 'UNPARSEABLE_URL');
+  chk('an empty URL is unparseable', mm('https://*/*', ''), 'UNPARSEABLE_URL');
+
+  /* POSITIVE CONTROL. The claim below is deliberately WRONG. The self test only
+     passes if the checker reports it as wrong. A checker that has never produced
+     a failure has not been tested. */
+  var controlClaim = true;
+  var controlActual = mm('https://*.example.com/*', 'https://www.example.com.evil.tld/');
+  var controlRejected = (controlActual !== controlClaim);
+  checks.push({
+    label: 'POSITIVE CONTROL, deliberately false claim: "https://*.example.com/* matches ' +
+           'https://www.example.com.evil.tld/". Must be reported as rejected.',
+    ok: controlRejected,
+    got: controlRejected ? 'correctly rejected' : 'WRONGLY ACCEPTED',
+    want: 'correctly rejected',
+    control: true
+  });
+
+  var failed = [];
+  for (var k = 0; k < checks.length; k++) { if (!checks[k].ok) failed.push(checks[k]); }
+  return { checks: checks, total: checks.length, failed: failed, controlRejected: controlRejected };
+}
+
+/* ============================================================
+   4. DOM helpers. Text only, never markup.
+   ============================================================ */
+
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = String(text);
+  return e;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+function byId(id) { return document.getElementById(id); }
+
+var STATE_TEXT = {
+  granted:  { word:'GRANTED',   glyph:'+', cls:'s-granted' },
+  excluded: { word:'EXCLUDED',  glyph:'!', cls:'s-excluded' },
+  excludes: { word:'EXCLUDES',  glyph:'!', cls:'s-excluded' },
+  nomatch:  { word:'no match',  glyph:'-', cls:'s-nomatch' },
+  absent:   { word:'key not present in this manifest', glyph:'.', cls:'s-absent' },
+  badurl:   { word:'unparseable URL', glyph:'x', cls:'s-badurl' },
+  unknown:  { word:'UNKNOWN, matcher refused', glyph:'?', cls:'s-unknown' },
+  invalid:  { word:'INVALID', glyph:'x', cls:'s-invalid' }
+};
+
+function stateCell(state, via, note) {
+  var td = el('td');
+  var t = STATE_TEXT[state];
+  var s = el('span', 'state ' + t.cls);
+  s.appendChild(el('span', 'g', t.glyph));
+  s.appendChild(document.createTextNode(t.word));
+  td.appendChild(s);
+  if (via) td.appendChild(el('span', 'via', via));
+  if (note) td.appendChild(el('span', 'note-sm', note));
+  return td;
+}
+
+function announce(msg) {
+  var a = byId('announce');
+  clear(a);
+  a.appendChild(document.createTextNode(msg));
+}
+
+/* ============================================================
+   5. Manifest reading. Every byte here is hostile.
+   ============================================================ */
+
+var RESERVED_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+function ManifestError(name, detail) { this.refusal = name; this.detail = detail || ''; }
+
+function parseManifest(text) {
+  var dropped = [];
+  var reviver = function (k, v) {
+    for (var i = 0; i < RESERVED_KEYS.length; i++) {
+      if (k === RESERVED_KEYS[i]) { dropped.push(k); return undefined; }
+    }
+    return v;
+  };
+  var data;
+  try {
+    data = JSON.parse(text, reviver);
+  } catch (e) {
+    throw new ManifestError('This is not valid JSON, so nothing was resolved.', String(e.message));
+  }
+  if (data === null || typeof data !== 'object' || Object.prototype.toString.call(data) === '[object Array]') {
+    throw new ManifestError('The top level of a manifest must be a JSON object.',
+      'Parsed successfully, but the top level value is ' +
+      (data === null ? 'null' : Object.prototype.toString.call(data) === '[object Array]' ? 'an array' : typeof data) + '.');
+  }
+  return { data: data, dropped: dropped };
+}
+
+function own(o, k) {
+  return o !== null && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k);
+}
+function isArray(v) { return Object.prototype.toString.call(v) === '[object Array]'; }
+
+/* Returns {present:bool, list:[strings], error:string|null} and never guesses. */
+function readStringArray(obj, key) {
+  if (!own(obj, key)) return { present: false, list: [], error: null };
+  var v = obj[key];
+  if (!isArray(v)) {
+    return { present: true, list: [], error: key + ' is present but is not an array.' };
+  }
+  if (v.length > MAX_PATTERNS_PER_KEY) {
+    return { present: true, list: [], error: key + ' holds ' + v.length +
+      ' entries, more than the ' + MAX_PATTERNS_PER_KEY + ' this tool will process.' };
+  }
+  var out = [];
+  for (var i = 0; i < v.length; i++) {
+    if (typeof v[i] !== 'string') {
+      return { present: true, list: [], error: key + '[' + i + '] is not a string.' };
+    }
+    out.push(v[i]);
+  }
+  return { present: true, list: out, error: null };
+}
+
+function collectKeys(data) {
+  var out = {}, i;
+
+  var hp = readStringArray(data, 'host_permissions');
+  out['host_permissions'] = { present: hp.present, patterns: hp.list, error: hp.error };
+
+  var ohp = readStringArray(data, 'optional_host_permissions');
+  out['optional_host_permissions'] = { present: ohp.present, patterns: ohp.list, error: ohp.error };
+
+  /* content_scripts keeps its entries, because exclude_matches only excludes
+     within its own entry. */
+  var csEntries = [], csErr = null, csPresent = own(data, 'content_scripts');
+  if (csPresent) {
+    var cs = data['content_scripts'];
+    if (!isArray(cs)) {
+      csErr = 'content_scripts is present but is not an array.';
+    } else if (cs.length > MAX_ENTRIES) {
+      csErr = 'content_scripts holds ' + cs.length + ' entries, more than the ' + MAX_ENTRIES + ' this tool will process.';
+    } else {
+      for (i = 0; i < cs.length && !csErr; i++) {
+        var e = cs[i];
+        if (e === null || typeof e !== 'object' || isArray(e)) {
+          csErr = 'content_scripts[' + i + '] is not an object.'; break;
+        }
+        var mres = readStringArray(e, 'matches');
+        var xres = readStringArray(e, 'exclude_matches');
+        if (mres.error) { csErr = 'content_scripts[' + i + ']: ' + mres.error; break; }
+        if (xres.error) { csErr = 'content_scripts[' + i + ']: ' + xres.error; break; }
+        csEntries.push({ index: i, matches: mres.list, matchesPresent: mres.present,
+                         excludes: xres.list, excludesPresent: xres.present });
+      }
+    }
+  }
+  var anyMatches = false, anyExcludes = false, allMatches = [], allExcludes = [];
+  for (i = 0; i < csEntries.length; i++) {
+    if (csEntries[i].matchesPresent) anyMatches = true;
+    if (csEntries[i].excludesPresent) anyExcludes = true;
+    allMatches = allMatches.concat(csEntries[i].matches);
+    allExcludes = allExcludes.concat(csEntries[i].excludes);
+  }
+  /* MAX_PATTERNS_PER_KEY is enforced per array inside readStringArray. Enforce it
+     on the concatenated total too, or 200 entries of 500 patterns render as 100000
+     table rows for one key. */
+  if (!csErr && allMatches.length > MAX_PATTERNS_PER_KEY) {
+    csErr = 'content_scripts holds ' + allMatches.length + ' matches patterns in total, more than the ' +
+      MAX_PATTERNS_PER_KEY + ' this tool will process.';
+  }
+  if (!csErr && allExcludes.length > MAX_PATTERNS_PER_KEY) {
+    csErr = 'content_scripts holds ' + allExcludes.length + ' exclude_matches patterns in total, more than the ' +
+      MAX_PATTERNS_PER_KEY + ' this tool will process.';
+  }
+  if (csErr) { allMatches = []; allExcludes = []; csEntries = []; }
+  out['content_scripts.matches'] = {
+    present: csPresent && (anyMatches || csErr !== null), patterns: allMatches, error: csErr, entries: csEntries };
+  /* An error is a reason to speak, never a reason to claim the key is absent, so
+     the presence flag carries csErr here exactly as it does for matches above. */
+  out['content_scripts.exclude_matches'] = {
+    present: csPresent && (anyExcludes || csErr !== null), patterns: allExcludes, error: csErr, entries: csEntries };
+
+  /* externally_connectable */
+  var ecPresent = own(data, 'externally_connectable'), ecErr = null, ecList = [];
+  if (ecPresent) {
+    var ec = data['externally_connectable'];
+    if (ec === null || typeof ec !== 'object' || isArray(ec)) {
+      ecErr = 'externally_connectable is present but is not an object.';
+    } else {
+      var ecm = readStringArray(ec, 'matches');
+      if (ecm.error) ecErr = ecm.error;
+      else if (!ecm.present) ecPresent = false;
+      else ecList = ecm.list;
+    }
+  }
+  out['externally_connectable.matches'] = { present: ecPresent, patterns: ecList, error: ecErr };
+
+  /* web_accessible_resources */
+  var warPresent = own(data, 'web_accessible_resources'), warErr = null, warEntries = [], warAll = [];
+  if (warPresent) {
+    var war = data['web_accessible_resources'];
+    if (!isArray(war)) {
+      warErr = 'web_accessible_resources is present but is not an array. Under manifest version 3 it must be an array of objects.';
+    } else if (war.length > MAX_ENTRIES) {
+      warErr = 'web_accessible_resources holds ' + war.length + ' entries, more than the ' + MAX_ENTRIES + ' this tool will process.';
+    } else {
+      for (i = 0; i < war.length && !warErr; i++) {
+        var w = war[i];
+        if (typeof w === 'string') {
+          warErr = 'web_accessible_resources[' + i + '] is a bare string. That is the manifest version 2 shape; version 3 requires an object with a resources list and a matches list.';
+          break;
+        }
+        if (w === null || typeof w !== 'object' || isArray(w)) {
+          warErr = 'web_accessible_resources[' + i + '] is not an object.'; break;
+        }
+        var wres = readStringArray(w, 'resources');
+        var wmat = readStringArray(w, 'matches');
+        var wids = readStringArray(w, 'extension_ids');
+        if (wres.error) { warErr = 'web_accessible_resources[' + i + ']: ' + wres.error; break; }
+        if (wmat.error) { warErr = 'web_accessible_resources[' + i + ']: ' + wmat.error; break; }
+        if (wids.error) { warErr = 'web_accessible_resources[' + i + ']: ' + wids.error; break; }
+        warEntries.push({
+          index: i,
+          resources: wres.list, resourcesPresent: wres.present,
+          matches: wmat.list, matchesPresent: wmat.present,
+          extensionIds: wids.list, extensionIdsPresent: wids.present,
+          allowAllExtensions: own(w, 'allow_all_extensions') ? w['allow_all_extensions'] : null,
+          useDynamicUrl: own(w, 'use_dynamic_url') ? w['use_dynamic_url'] : null
+        });
+        warAll = warAll.concat(wmat.list);
+      }
+    }
+  }
+  if (!warErr && warAll.length > MAX_PATTERNS_PER_KEY) {
+    warErr = 'web_accessible_resources holds ' + warAll.length + ' matches patterns in total, more than the ' +
+      MAX_PATTERNS_PER_KEY + ' this tool will process.';
+  }
+  if (warErr) { warAll = []; warEntries = []; }
+  out['web_accessible_resources.matches'] = {
+    present: warPresent, patterns: warAll, error: warErr, entries: warEntries };
+
+  return out;
+}
+
+/* ============================================================
+   6. Resolution
+   ============================================================ */
+
+var WAR_PATH_ERROR = 'Invalid match pattern. web_accessible_resources requires the path to be exactly /*, and Chrome refuses to load a manifest that breaks that rule.';
+
+function parseAll(patterns, mask, pathMustBeSlashStar) {
+  var out = [];
+  for (var i = 0; i < patterns.length; i++) {
+    try {
+      var pp = parsePattern(patterns[i], mask);
+      /* web_accessible_resources_info.cc:120 to :124 parses with SCHEME_ALL and
+         then rejects the whole manifest unless pattern.path() == "/*". A pattern
+         Chrome refuses to load must never render as an ordinary resolution. */
+      if (pathMustBeSlashStar && pp.path !== '/*') throw new ParseError(WAR_PATH_ERROR);
+      out.push({ raw: patterns[i], pat: pp, error: null });
+    }
+    catch (e) { out.push({ raw: patterns[i], pat: null, error: e.message }); }
+  }
+  return out;
+}
+
+/* Returns {hit:parsedEntry|null, unknown:bool}. Derived only from real results. */
+function firstMatch(parsed, url, ignorePath) {
+  var unknown = false;
+  for (var i = 0; i < parsed.length; i++) {
+    if (!parsed[i].pat) continue;
+    var r = matchOne(parsed[i].pat, url, ignorePath);
+    if (r === null) { unknown = true; continue; }
+    if (r === true) return { hit: parsed[i], unknown: unknown };
+  }
+  return { hit: null, unknown: unknown };
+}
+
+function countInvalid(parsed) {
+  var n = 0;
+  for (var i = 0; i < parsed.length; i++) { if (parsed[i].error) n++; }
+  return n;
+}
+
+function invalidNote(parsed) {
+  var n = countInvalid(parsed);
+  if (n === 0) return null;
+  return n + (n === 1 ? ' pattern in this key is INVALID and was not resolved.'
+                      : ' patterns in this key are INVALID and were not resolved.');
+}
+
+/* One cell. Every branch returns a state that names what actually happened. */
+function resolveCell(keyDef, keyData, parsedByKey, url) {
+  /* An unparseable URL wins over every other state, in every column, so the row
+     reads as "this is not an answer" rather than as "not granted". Reporting a
+     bad URL as a no match is the fail open direction. */
+  if (url === null) return { state: 'badurl' };
+  /* The error is tested BEFORE the absence claim. Test presence first and a key
+     that IS in the manifest but failed to read is reported as "key not present",
+     which is a false statement about the input the user pasted. */
+  if (keyData.error) return { state: 'invalid', via: keyData.error };
+  if (!keyData.present) return { state: 'absent' };
+
+  var parsed = parsedByKey[keyDef.id];
+  /* The note is attached only where the answer is not a grant, because that is
+     the only place an unparsed pattern could be hiding one. */
+  var note = invalidNote(parsed);
+
+  if (keyDef.id === 'content_scripts.matches') {
+    var grant = null, blocked = null, unknown = false;
+    var entries = keyData.entries || [];
+    for (var i = 0; i < entries.length; i++) {
+      /* Parsed once per run in renderResults, not once per candidate URL. The
+         fallback keeps this function correct if it is ever called on its own. */
+      var mParsed = entries[i].parsedMatches || parseAll(entries[i].matches, keyDef.mask);
+      var r = firstMatch(mParsed, url, false);
+      if (r.unknown) unknown = true;
+      if (!r.hit) continue;
+      var xParsed = entries[i].parsedExcludes || parseAll(entries[i].excludes, keyDef.mask);
+      var x = firstMatch(xParsed, url, false);
+      if (x.unknown) unknown = true;
+      if (x.hit) {
+        if (!blocked) blocked = { via: r.hit.raw, by: x.hit.raw, entry: entries[i].index };
+      } else if (!x.unknown) {
+        grant = { via: r.hit.raw, entry: entries[i].index };
+        break;
+      }
+      /* x.unknown with no hit means the exclusion check never finished. Falling
+         through to a bare GRANTED here would be the one quiet false in the file. */
+    }
+    /* The summary is read off the winning value, never off an intermediate flag. */
+    if (grant) return { state: 'granted', via: grant.via + '   (content_scripts[' + grant.entry + '])' };
+    if (blocked) return { state: 'excluded',
+      via: 'matched ' + blocked.via + ' then EXCLUDED by ' + blocked.by + '   (content_scripts[' + blocked.entry + '])',
+      note: note };
+    if (unknown) return { state: 'unknown', via: 'the matcher exhausted its step budget on this input' };
+    return { state: 'nomatch', note: note };
+  }
+
+  var res = firstMatch(parsed, url, keyDef.ignorePath);
+  if (res.hit) {
+    var word = (keyDef.id === 'content_scripts.exclude_matches') ? 'excludes' : 'granted';
+    return { state: word, via: res.hit.raw };
+  }
+  if (res.unknown) return { state: 'unknown', via: 'the matcher exhausted its step budget on this input' };
+  return { state: 'nomatch', note: note };
+}
+
+/* ============================================================
+   7. Rendering
+   ============================================================ */
+
+function renderBanner(kind, head, body) {
+  var d = el('div', 'banner ' + kind);
+  d.appendChild(el('div', 'head', head));
+  if (body) d.appendChild(el('p', null, body));
+  return d;
+}
+
+function renderSelfTest() {
+  globBudgetLeft = GLOB_RUN_BUDGET;
+  var r = runSelfTest();
+  var banner = byId('selftest-banner');
+  var detail = byId('selftest-detail');
+  clear(banner); clear(detail);
+
+  var pass = r.failed.length === 0;
+  banner.className = 'banner ' + (pass ? 'pass' : 'fail');
+  banner.appendChild(el('div', 'head',
+    pass ? ('self test: PASS, ' + r.total + ' of ' + r.total + ' checks pass')
+         : ('self test: FAIL, ' + r.failed.length + ' of ' + r.total + ' checks failed')));
+  banner.appendChild(el('p', null, pass
+    ? ('Every check ran against values taken from the published documentation and from the url_pattern_unittest.cc tables in Chromium. One of them is a positive control: a deliberately false claim that the checker must reject, and it did.')
+    : ('Results are refused while any check fails. A permissive table over a broken matcher is worse than no table.')));
+
+  var det = el('details');
+  var sum = el('summary', null, pass
+    ? ('Show all ' + r.total + ' checks')
+    : ('Show the ' + r.failed.length + ' failing checks and the other ' + (r.total - r.failed.length)));
+  det.appendChild(sum);
+  var ul = el('ul', 'checks');
+  var list = r.checks;
+  for (var i = 0; i < list.length; i++) {
+    var li = el('li');
+    li.appendChild(el('span', list[i].ok ? 'pass-tag' : 'fail-tag', list[i].ok ? 'PASS ' : 'FAIL '));
+    li.appendChild(document.createTextNode(list[i].label));
+    if (!list[i].ok) {
+      li.appendChild(document.createTextNode('  got ' + JSON.stringify(list[i].got) +
+        ', expected ' + JSON.stringify(list[i].want)));
+    }
+    ul.appendChild(li);
+  }
+  det.appendChild(ul);
+  detail.appendChild(det);
+  return r;
+}
+
+function renderJsonRefusal(container, text, err) {
+  var box = renderBanner('fail', 'Refused: ' + err.refusal, err.detail);
+  box.setAttribute('role', 'alert');
+  container.appendChild(box);
+  /* Engines report the failure point differently, and some do not report it at
+     all. Take what is offered, and say plainly when nothing is offered rather
+     than pointing at a guessed character. */
+  var detail = err.detail || '';
+  var lineNo = null, col = null, off = null;
+  var posMatch = /position\s+(\d+)/.exec(detail);
+  var lcMatch = /line\s+(\d+)\s+column\s+(\d+)/i.exec(detail);
+  if (posMatch) {
+    off = Number(posMatch[1]);
+    if (!(off >= 0) || off > text.length) { off = null; }
+  }
+  if (off === null && lcMatch) {
+    lineNo = Number(lcMatch[1]);
+    col = Number(lcMatch[2]) - 1;
+  }
+  if (off === null && lineNo === null) {
+    container.appendChild(el('p', null,
+      'The JSON parser in this browser did not report a character offset for the failure, ' +
+      'so no position is shown. The message above is reproduced exactly as the parser gave it.'));
+    return;
+  }
+  var lineStart, lineEnd, line;
+  if (off !== null) {
+    var before = text.slice(0, off);
+    lineNo = before.split('\n').length;
+    lineStart = before.lastIndexOf('\n') + 1;
+    col = off - lineStart;
+  } else {
+    lineStart = 0;
+    for (var ln = 1; ln < lineNo; ln++) {
+      var nx = text.indexOf('\n', lineStart);
+      if (nx < 0) { lineStart = text.length; break; }
+      lineStart = nx + 1;
+    }
+    off = lineStart + col;
+  }
+  lineEnd = text.indexOf('\n', lineStart);
+  if (lineEnd < 0) lineEnd = text.length;
+  line = text.slice(lineStart, lineEnd);
+  if (col < 0) col = 0;
+  if (col > line.length) col = line.length;
+  if (line.length > 300) { line = line.slice(0, 300); if (col > 300) col = 300; }
+  var caret = '';
+  for (var i = 0; i < col; i++) caret += (line.charAt(i) === '\t') ? '\t' : ' ';
+  var pre = el('pre');
+  pre.appendChild(document.createTextNode(
+    'line ' + lineNo + ', column ' + (col + 1) + ', character offset ' + off + '\n' +
+    line + '\n' + caret + '^'));
+  container.appendChild(pre);
+}
+
+function renderInventory(container, keyData, parsedByKey) {
+  var h = el('h3', null, 'Pattern inventory');
+  container.appendChild(h);
+
+  var wrap = el('div', 'tablewrap');
+  var t = el('table');
+  t.appendChild(el('caption', null,
+    'Every pattern in the manifest, parsed with the flags of the key it sits in. INVALID patterns are never counted as a grant and are never silently skipped.'));
+  var thead = el('thead'), hr = el('tr');
+  ['Key', 'Pattern', 'Verdict', 'Parsed as'].forEach(function (label) {
+    var th = el('th', null, label); th.setAttribute('scope', 'col'); hr.appendChild(th);
+  });
+  thead.appendChild(hr); t.appendChild(thead);
+
+  var tb = el('tbody'), rows = 0;
+  for (var k = 0; k < KEYS.length; k++) {
+    var def = KEYS[k], data = keyData[def.id];
+    var tr, th, td;
+    if (data.error) {
+      tr = el('tr');
+      th = el('th', 'mono', def.label); th.setAttribute('scope', 'row'); tr.appendChild(th);
+      tr.appendChild(el('td', null, ''));
+      tr.appendChild(stateCell('invalid', data.error));
+      tr.appendChild(el('td', null, ''));
+      tb.appendChild(tr); rows++;
+      continue;
+    }
+    if (!data.present) {
+      tr = el('tr');
+      th = el('th', 'mono', def.label); th.setAttribute('scope', 'row'); tr.appendChild(th);
+      td = el('td', null, ''); tr.appendChild(td);
+      tr.appendChild(stateCell('absent'));
+      tr.appendChild(el('td', null, ''));
+      tb.appendChild(tr); rows++;
+      continue;
+    }
+    var parsed = parsedByKey[def.id];
+    if (parsed.length === 0) {
+      tr = el('tr');
+      th = el('th', 'mono', def.label); th.setAttribute('scope', 'row'); tr.appendChild(th);
+      tr.appendChild(el('td', null, ''));
+      var td0 = el('td');
+      td0.appendChild(el('span', 'state s-nomatch', 'present but empty'));
+      tr.appendChild(td0);
+      tr.appendChild(el('td', null, 'The key exists and lists no patterns, so it grants nothing.'));
+      tb.appendChild(tr); rows++;
+      continue;
+    }
+    for (var i = 0; i < parsed.length; i++) {
+      tr = el('tr');
+      th = el('th', 'mono', i === 0 ? def.label : ''); th.setAttribute('scope', 'row'); tr.appendChild(th);
+      tr.appendChild(el('td', 'mono', parsed[i].raw));
+      if (parsed[i].error) {
+        tr.appendChild(stateCell('invalid', parsed[i].error));
+        tr.appendChild(el('td', null, 'Not resolved.'));
+      } else {
+        var okTd = el('td');
+        var s = el('span', 'state s-granted');
+        s.appendChild(el('span', 'g', '+'));
+        s.appendChild(document.createTextNode('VALID'));
+        okTd.appendChild(s);
+        tr.appendChild(okTd);
+        var p = parsed[i].pat;
+        var desc = p.allUrls
+          ? 'all URLs whose scheme this key accepts'
+          : ('scheme ' + p.scheme +
+             ', host ' + (p.host === '' ? (p.matchSubdomains ? 'any' : 'none') :
+                          (p.matchSubdomains ? (p.host + ' and its subdomains') : (p.host + ' exactly'))) +
+             ', port ' + (p.port === '*' ? 'any' : p.port) +
+             ', path ' + (def.ignorePath ? 'ignored by this key' : p.path));
+        tr.appendChild(el('td', null, desc));
+      }
+      tb.appendChild(tr); rows++;
+    }
+  }
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  container.appendChild(wrap);
+  return rows;
+}
+
+function renderWar(container, entries, manifestVersion) {
+  if (!entries || entries.length === 0) return;
+  container.appendChild(el('h3', null, 'web_accessible_resources entries'));
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var box = el('div', 'panel');
+    box.appendChild(el('div', 'head', 'entry [' + e.index + ']'));
+    var dl = el('ul');
+    function row(label, value) {
+      var li = el('li');
+      li.appendChild(el('strong', null, label + ': '));
+      li.appendChild(document.createTextNode(value));
+      dl.appendChild(li);
+    }
+    row('resources', e.resourcesPresent ? (e.resources.length ? e.resources.join(', ') : 'present but empty') : 'not declared');
+    row('matches', e.matchesPresent ? (e.matches.length ? e.matches.join(', ') : 'present but empty') : 'not declared');
+    row('extension_ids', e.extensionIdsPresent ? (e.extensionIds.length ? e.extensionIds.join(', ') : 'present but empty') : 'not declared');
+    row('allow_all_extensions', e.allowAllExtensions === null ? 'not declared' : String(e.allowAllExtensions));
+    row('use_dynamic_url', e.useDynamicUrl === null ? 'not declared' : String(e.useDynamicUrl));
+    box.appendChild(dl);
+    var mech = el('p', null,
+      'Mechanism: a web origin reaches this entry only through ' +
+      'entry.matches.MatchesURL(initiator_url), at web_accessible_resources_info.cc:231 inside ' +
+      'IsResourceWebAccessibleImpl, which returns false when nothing matches. The other exits are a ' +
+      'chrome-extension:// initiator allowed by allow_all_extensions or by a listed extension_ids ' +
+      'entry, and the legacy bypass at :199 to :201, which fires only when manifest_version is below 3. ' +
+      (manifestVersion === 3
+        ? 'This manifest declares manifest_version 3, so the legacy bypass does not apply.'
+        : 'This manifest does not declare manifest_version 3, so the legacy bypass may apply and the matches list may not be the gate at all.'));
+    box.appendChild(mech);
+    container.appendChild(box);
+  }
+}
+
+function renderResults() {
+  var container = byId('results');
+  clear(container);
+
+  var st = renderSelfTest();
+  if (st.failed.length > 0) {
+    var refuse = renderBanner('fail', 'Results refused.',
+      'The self test is failing, so the matcher behind this table is not trustworthy. ' +
+      'No grant table is rendered. Read the failing checks above.');
+    refuse.setAttribute('role', 'alert');
+    container.appendChild(refuse);
+    announce('Results refused. The self test is failing.');
+    return;
+  }
+
+  var manifestText = byId('manifest-input').value;
+  var urlsText = byId('urls-input').value;
+
+  if (manifestText.length > MAX_INPUT_CHARS || urlsText.length > MAX_INPUT_CHARS) {
+    var big = renderBanner('fail', 'Refused: input too large.',
+      'This page processes at most ' + MAX_INPUT_CHARS + ' characters per box. Nothing was resolved.');
+    big.setAttribute('role', 'alert');
+    container.appendChild(big);
+    announce('Refused, input too large.');
+    return;
+  }
+
+  if (manifestText.replace(/\s+/g, '') === '') {
+    container.appendChild(el('p', null, 'Paste a manifest.json to resolve its patterns.'));
+    announce('No manifest pasted yet.');
+    return;
+  }
+
+  var parsedManifest;
+  try {
+    parsedManifest = parseManifest(manifestText);
+  } catch (err) {
+    renderJsonRefusal(container, manifestText, err);
+    announce('Refused. ' + err.refusal);
+    return;
+  }
+
+  if (parsedManifest.dropped.length > 0) {
+    container.appendChild(renderBanner('note', 'Reserved key names were dropped before parsing.',
+      'This manifest contained ' + parsedManifest.dropped.length +
+      ' key or keys named ' + parsedManifest.dropped.join(', ') +
+      '. They were removed rather than assigned onto an object. Nothing else was changed.'));
+  }
+
+  var data = parsedManifest.data;
+  var keyData = collectKeys(data);
+
+  var anyPresent = false;
+  for (var k = 0; k < KEYS.length; k++) { if (keyData[KEYS[k].id].present) anyPresent = true; }
+  if (!anyPresent) {
+    var none = renderBanner('fail', 'No pattern bearing keys found in this manifest.',
+      'Valid JSON, but none of the six keys this tool resolves are present.');
+    none.setAttribute('role', 'alert');
+    container.appendChild(none);
+    var ul = el('ul');
+    for (var q = 0; q < KEYS.length; q++) ul.appendChild(el('li', 'mono', KEYS[q].label));
+    container.appendChild(ul);
+    announce('No pattern bearing keys found.');
+    return;
+  }
+
+  var mv = own(data, 'manifest_version') ? data['manifest_version'] : null;
+  if (mv !== 3) {
+    container.appendChild(renderBanner('note',
+      'manifest_version is ' + (mv === null ? 'not declared' : JSON.stringify(mv)) + ', not 3.',
+      'The manifest version 2 legacy bypass at web_accessible_resources_info.cc:199 to :201 means ' +
+      'web accessible resources were reachable by any site regardless of the matches list. This tool ' +
+      'resolves the manifest version 3 rules, so treat the web_accessible_resources column below as ' +
+      'the version 3 answer, not the answer for this file.'));
+  }
+
+  var parsedByKey = {};
+  for (var a = 0; a < KEYS.length; a++) {
+    parsedByKey[KEYS[a].id] = parseAll(keyData[KEYS[a].id].patterns, KEYS[a].mask,
+      KEYS[a].pathMustBeSlashStar);
+  }
+
+  /* content_scripts resolves per entry, so parse each entry once for the whole
+     run instead of once per candidate URL. */
+  for (var ck = 0; ck < KEYS.length; ck++) {
+    if (KEYS[ck].id !== 'content_scripts.matches') continue;
+    var csList = keyData[KEYS[ck].id].entries || [];
+    for (var ce = 0; ce < csList.length; ce++) {
+      csList[ce].parsedMatches = parseAll(csList[ce].matches, KEYS[ck].mask);
+      csList[ce].parsedExcludes = parseAll(csList[ce].excludes, KEYS[ck].mask);
+    }
+  }
+
+  renderInventory(container, keyData, parsedByKey);
+  renderWar(container, keyData['web_accessible_resources.matches'].entries, mv);
+
+  /* URLs */
+  var rawLines = urlsText.split('\n');
+  var urlStrings = [], truncated = false;
+  for (var i = 0; i < rawLines.length; i++) {
+    /* String.prototype.trim, not /^\s+|\s+$/g: that alternation is quadratic on a
+       whitespace run that is not at the end of the line, and nothing caps the line
+       length before this point. */
+    var line = rawLines[i].trim();
+    if (line === '') continue;
+    if (urlStrings.length >= MAX_URLS) { truncated = true; break; }
+    urlStrings.push(line);
+  }
+
+  if (urlStrings.length === 0) {
+    container.appendChild(el('p', null,
+      'Add one or more URLs to resolve them against these patterns.'));
+    announce('Manifest parsed. Add URLs to resolve them.');
+    return;
+  }
+  if (truncated) {
+    var tb2 = renderBanner('fail', 'Refused: too many URLs.',
+      'This page resolves at most ' + MAX_URLS + ' URLs at once. Nothing was resolved. ' +
+      'Remove some lines and try again.');
+    tb2.setAttribute('role', 'alert');
+    container.appendChild(tb2);
+    announce('Refused, too many URLs.');
+    return;
+  }
+
+  /* Resolve every cell first, then read the summary off the results. */
+  var rows = [];
+  for (var u = 0; u < urlStrings.length; u++) {
+    var parsedUrl = splitUrl(urlStrings[u]);
+    var cells = [];
+    for (var c = 0; c < KEYS.length; c++) {
+      cells.push(resolveCell(KEYS[c], keyData[KEYS[c].id], parsedByKey, parsedUrl));
+    }
+    rows.push({ url: urlStrings[u], parsed: parsedUrl, cells: cells });
+  }
+
+  container.appendChild(el('h3', null, 'Grant table'));
+  var wrap = el('div', 'tablewrap');
+  var t = el('table');
+  t.appendChild(el('caption', null,
+    'Each candidate URL resolved independently against each pattern bearing key. ' +
+    'A key that is absent prints "key not present in this manifest" rather than an empty column.'));
+  var thead = el('thead'), hr = el('tr');
+  var thu = el('th', null, 'candidate URL'); thu.setAttribute('scope', 'col'); hr.appendChild(thu);
+  for (var h = 0; h < KEYS.length; h++) {
+    var th = el('th', 'mono', KEYS[h].label); th.setAttribute('scope', 'col'); hr.appendChild(th);
+  }
+  thead.appendChild(hr); t.appendChild(thead);
+
+  var tbody = el('tbody');
+  for (var r = 0; r < rows.length; r++) {
+    var tr = el('tr');
+    var rth = el('th', 'mono', rows[r].url); rth.setAttribute('scope', 'row'); tr.appendChild(rth);
+    for (var cc = 0; cc < rows[r].cells.length; cc++) {
+      var cell = rows[r].cells[cc];
+      tr.appendChild(stateCell(cell.state, cell.via, cell.note));
+    }
+    tbody.appendChild(tr);
+  }
+  t.appendChild(tbody);
+  wrap.appendChild(t);
+  container.appendChild(wrap);
+
+  /* Summary, computed from the rendered results and from nothing else. */
+  var grantedUrls = 0, badUrls = 0, unknownCells = 0;
+  var setsByKey = {};
+  for (var s = 0; s < rows.length; s++) {
+    var sawGrant = false, sawBad = false;
+    for (var y = 0; y < rows[s].cells.length; y++) {
+      var st2 = rows[s].cells[y].state;
+      if (st2 === 'granted') {
+        sawGrant = true;
+        if (!setsByKey[KEYS[y].id]) setsByKey[KEYS[y].id] = [];
+        setsByKey[KEYS[y].id].push(rows[s].url);
+      }
+      if (st2 === 'badurl') sawBad = true;
+      if (st2 === 'unknown') unknownCells++;
+    }
+    if (sawGrant) grantedUrls++;
+    if (sawBad) badUrls++;
+  }
+
+  var summary = el('p', null,
+    grantedUrls + ' of ' + rows.length + ' URLs resolved to at least one grant. ' +
+    (badUrls > 0 ? (badUrls + ' URLs could not be parsed and are reported as unparseable, not as no match. ') : '') +
+    (unknownCells > 0 ? (unknownCells + ' cells are reported UNKNOWN because the matcher exhausted its step budget. ') : ''));
+  container.appendChild(summary);
+
+  /* Do the present keys actually resolve to different sets? Computed, not asserted. */
+  /* exclude_matches is deliberately left out: it never grants, so counting its
+     always empty set as a "grant set" would inflate the number below. */
+  var presentIds = [];
+  for (var pk = 0; pk < KEYS.length; pk++) {
+    if (KEYS[pk].id === 'content_scripts.exclude_matches') continue;
+    if (keyData[KEYS[pk].id].present && !keyData[KEYS[pk].id].error) presentIds.push(KEYS[pk].id);
+  }
+  if (presentIds.length >= 2) {
+    /* The signature key is namespaced, so a URL that happens to read like a
+       reserved property name cannot collide with an object prototype slot. */
+    var sig = {}, distinct = 0;
+    for (var pi = 0; pi < presentIds.length; pi++) {
+      var listed = 'set:' + (setsByKey[presentIds[pi]] || []).slice().sort().join('\n');
+      if (!Object.prototype.hasOwnProperty.call(sig, listed)) { sig[listed] = 1; distinct++; }
+    }
+    container.appendChild(el('p', null, distinct === 1
+      ? ('Over these ' + rows.length + ' URLs, all ' + presentIds.length +
+         ' granting keys present in this manifest resolved to the same set of granted URLs. ' +
+         'On this input those keys are not distinguishable.')
+      : ('Over these ' + rows.length + ' URLs, the ' + presentIds.length +
+         ' granting keys present in this manifest resolved to ' + distinct +
+         ' distinct sets of granted URLs.')));
+  }
+
+  announce('Resolved ' + rows.length + ' URLs. ' + grantedUrls + ' had at least one grant.');
+}
+
+/* ============================================================
+   8. Sample. Written for this page. Not taken from any shipped product.
+   ============================================================ */
+
+var SAMPLE_MANIFEST = [
+  '{',
+  '  "manifest_version": 3,',
+  '  "name": "Sample extension",',
+  '  "version": "1.0",',
+  '  "host_permissions": [',
+  '    "https://api.example.com/*",',
+  '    "https://*.example.org/*",',
+  '    "http://localhost:3000/*",',
+  '    "https://example.*/*"',
+  '  ],',
+  '  "content_scripts": [',
+  '    {',
+  '      "matches": ["https://*.example.org/*"],',
+  '      "exclude_matches": ["https://admin.example.org/*"],',
+  '      "js": ["content.js"]',
+  '    }',
+  '  ],',
+  '  "web_accessible_resources": [',
+  '    {',
+  '      "resources": ["inject.js"],',
+  '      "matches": ["https://*.example.org/*"]',
+  '    }',
+  '  ]',
+  '}'
+].join('\n');
+
+var SAMPLE_URLS = [
+  'https://api.example.com/v1/items',
+  'https://www.example.org/page',
+  'https://admin.example.org/panel',
+  'https://www.example.org.evil.tld/page',
+  'http://localhost:3000/dev',
+  'http://localhost:3001/dev',
+  'example.com/no-scheme'
+].join('\n');
+
+/* ============================================================
+   9. Wiring
+   ============================================================ */
+
+byId('btn-resolve').addEventListener('click', function () { renderResults(); });
+byId('btn-sample').addEventListener('click', function () {
+  byId('manifest-input').value = SAMPLE_MANIFEST;
+  byId('urls-input').value = SAMPLE_URLS;
+  renderResults();
+});
+byId('btn-clear').addEventListener('click', function () {
+  byId('manifest-input').value = '';
+  byId('urls-input').value = '';
+  renderResults();
+});
+byId('btn-selftest').addEventListener('click', function () {
+  var r = renderSelfTest();
+  announce(r.failed.length === 0
+    ? ('Self test passed, ' + r.total + ' of ' + r.total + ' checks.')
+    : ('Self test failed, ' + r.failed.length + ' of ' + r.total + ' checks.'));
+});
+
+renderResults();
+
+})();
+</script>
+</body>
+</html>
