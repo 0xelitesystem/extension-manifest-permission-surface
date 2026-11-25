@@ -200,7 +200,7 @@ format being parsed.
 
 ## Related
 
-- https://github.com/0xelitesystem/content-security-policy-builder
+- https://github.com/0xelitesystem/csp-header-toggle-builder
 - https://github.com/0xelitesystem/cors-basics-reference
 - https://github.com/0xelitesystem/url-parser-and-query-editor
 
